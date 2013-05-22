@@ -181,9 +181,12 @@ var $AnimatorProvider = function() {
      *        passed into the linking function of the directive using the `$animator`.)
      * @return {object} the animator object which contains the enter, leave, move, show, hide and animate methods.
      */
-     var AnimatorService = function(scope, attrs) {
+     var AnimatorService = function(scope, attrs, isRepeater) {
         var animator = {};
-  
+        var ngAnimateValue = scope.$eval(attrs.ngAnimate);
+        var animateElements = {};   // tracks all the elements being animated
+        var runningCount = 0, isDone = false;
+
         /**
          * @ngdoc function
          * @name ng.animator#enter
@@ -267,6 +270,21 @@ var $AnimatorProvider = function() {
         animator.animate = function(event, element) {
           animateActionFactory(event, noop, noop)(element);
         }
+
+        /**
+         * @ngdoc function
+         * @name ng.animator#done
+         * @methodOf ng.$animator
+         *
+         * @description
+         * Called at the end of a repeater directive, such as ngRepeat,
+         * after all other animation functions have been called.
+        */
+        animator.done = function () {
+          isDone = true;
+          if (!runningCount) finishAnimation();
+        };
+
         return animator;
   
         function animateActionFactory(type, beforeFn, afterFn) {
@@ -278,6 +296,7 @@ var $AnimatorProvider = function() {
             var animationPolyfill = $animation(className);
             var polyfillSetup = animationPolyfill && animationPolyfill.setup;
             var polyfillStart = animationPolyfill && animationPolyfill.start;
+            var polyfillFinish = animationPolyfill && animationPolyfill.finish;
             var polyfillCancel = animationPolyfill && animationPolyfill.cancel;
 
             if (!className) {
@@ -289,12 +308,18 @@ var $AnimatorProvider = function() {
               if (!parent) {
                 parent = after ? after.parent() : element.parent();
               }
-              if ((!$sniffer.transitions && !polyfillSetup && !polyfillStart) ||
+              if ((!$sniffer.transitions && !polyfillSetup && !polyfillStart && !polyfillFinish) ||
                   (parent.inheritedData(NG_ANIMATE_CONTROLLER) || noop).running) {
                 beforeFn(element, parent, after);
                 afterFn(element, parent, after);
                 return;
               }
+
+              if (!animateElements[type]) animateElements[type] = [];
+              animateElements[type].push(element);
+              runningCount++;
+              // if not a repeater than we are done after each element is animated
+              if (!isRepeater) isDone = true;
 
               var animationData = element.data(NG_ANIMATE_CONTROLLER) || {};
               if(animationData.running) {
@@ -377,10 +402,12 @@ var $AnimatorProvider = function() {
             function done() {
               if(!done.run) {
                 done.run = true;
-                afterFn(element, parent, after);
+                // skip 'leave' for now -- remove elements in finishDone())
+                if (type !== 'leave') afterFn(element, parent, after);
                 element.removeClass(className);
                 element.removeClass(activeClassName);
                 element.removeData(NG_ANIMATE_CONTROLLER);
+                if (!(--runningCount) && isDone) finishAnimation();
               }
             }
           };
@@ -410,6 +437,36 @@ var $AnimatorProvider = function() {
           // Do not remove element before insert. Removing will cause data associated with the
           // element to be dropped. Insert will implicitly do the remove.
           insert(element, parent, after);
+        }
+
+        function finishAnimation() {
+          var type, className, animationPolyfill;
+          for (type in animateElements) {
+            if (animateElements.hasOwnProperty(type) && animateElements[type].length > 0) {
+              className = ngAnimateValue ? isObject(ngAnimateValue) 
+                  ? ngAnimateValue[type] : ngAnimateValue + '-' + type : '';
+              animationPolyfill = $animation(className);
+              if (animationPolyfill && animationPolyfill.finish) {
+                (function (type, elements) {
+                  animationPolyfill.finish(elements, function () {
+                    finishDone(type, elements);
+                  });
+                })(type, animateElements[type]);
+              } else {
+                finishDone(type, animateElements[type]);
+              }
+              animateElements[type] = [];
+            }
+          }
+          isDone = false;
+
+          function finishDone(type, elements) {
+            if (type === 'leave') {
+              for (var i = 0, len = elements.length; i < len; i++) {
+                remove(elements[i]);
+              }
+            }
+          }
         }
       };
 

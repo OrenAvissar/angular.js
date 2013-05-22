@@ -150,7 +150,7 @@ var ngRepeatDirective = ['$parse', '$animator', function($parse, $animator) {
     terminal: true,
     compile: function(element, attr, linker) {
       return function($scope, $element, $attr){
-        var animate = $animator($scope, $attr);
+        var animate = $animator($scope, $attr, true);
         var expression = $attr.ngRepeat;
         var match = expression.match(/^\s*(.+)\s+in\s+(.*?)\s*(\s+track\s+by\s+(.+)\s*)?$/),
           trackByExp, trackByExpGetter, trackByIdFn, lhs, rhs, valueIdentifier, keyIdentifier,
@@ -310,6 +310,7 @@ var ngRepeatDirective = ['$parse', '$animator', function($parse, $animator) {
             }
           }
           lastBlockMap = nextBlockMap;
+          animate.done();
         });
       };
     }
